@@ -152,23 +152,30 @@ class HandlersFilter(
     }
 
     private fun findHandler(message: Message): Handler? {
-        val text =
-            message.getMessageText()
-                ?.lowercase()
-                ?: return null
-        for (entry in handlers) {
-            if (text.startsWith(entry.key)) {
-                clearState(message.chatId ?: "")
-                return entry.value
-            }
-        }
-
+        val text = message.getMessageText()?.lowercase(Locale.ROOT) ?: return null
         val state = states[message.chatId]
-        if (state != null) {
-            return state.handler
-        }
+        val slashCommand = text.startsWith("/")
 
-        return null
+        // A translated menu label can also be a perfectly valid form answer.
+        // Only explicit slash commands may interrupt an active question.
+        if (state != null && !slashCommand) return state.handler
+
+        val handler = if (slashCommand) {
+            // Preserve existing concatenated deep-link payloads, such as /repeatrepeatid...
+            // Prefer the longest command so /promoPrice cannot be captured by /promo.
+            handlers.entries.asSequence()
+                .filter { it.key.startsWith("/") && text.startsWith(it.key) }
+                .maxByOrNull { it.key.length }
+                ?.value
+        } else {
+            // Menu labels are exact matches and are only considered outside a flow.
+            handlers[text]
+        }
+        if (handler != null) {
+            states.remove(message.chatId ?: "")
+            return handler
+        }
+        return state?.handler
     }
 
     companion object {
